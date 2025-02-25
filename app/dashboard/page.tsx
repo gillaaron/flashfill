@@ -1,56 +1,64 @@
-"use client"
+import { Suspense } from "react"
+import { createServerSupabaseClient } from "@/lib/supabase-server"
+import DashboardClient from "./dashboard-client"
+import { redirect } from "next/navigation"
 
-import { useState, useEffect } from "react"
+async function getDashboardData() {
+  const supabase = createServerSupabaseClient()
 
-export default function Dashboard() {
-  const [dashboardData, setDashboardData] = useState<any>(null)
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-  const fetchDashboardData = async () => {
-    try {
-      const response = await fetch("/api/dashboard")
-      const data = await response.json()
-      setDashboardData(data)
-    } catch (error) {
-      console.error("Error fetching dashboard data:", error)
-    }
+  if (!user) {
+    redirect("/login")
   }
 
-  useEffect(() => {
-    fetchDashboardData()
-  }, []) // Removed fetchDashboardData as a dependency
+  const { data: userRole } = await supabase
+    .from("user_roles")
+    .select("role, business_id, outlet_id")
+    .eq("user_id", user.id)
+    .single()
+
+  if (!userRole) {
+    redirect("/unauthorized")
+  }
+
+  const contactsQuery = supabase.from("contacts").select("count", { count: "exact" })
+  let appointmentsQuery = supabase
+    .from("appointments")
+    .select("id, status, appointment_slots(outlet_id, outlets(business_id))")
+
+  if (userRole.role === "outlet_manager") {
+    appointmentsQuery = appointmentsQuery.eq("appointment_slots.outlet_id", userRole.outlet_id)
+  } else if (userRole.role === "brand_manager") {
+    appointmentsQuery = appointmentsQuery.eq("appointment_slots.outlets.business_id", userRole.business_id)
+  }
+
+  const [{ count: totalContacts }, { data: appointments }] = await Promise.all([contactsQuery, appointmentsQuery])
+
+  if (!appointments || !totalContacts) {
+    return null
+  }
+
+  const totalAppointments = appointments.length
+  const successfulAppointments = appointments.filter((a) => a.status === "confirmed").length
+
+  return {
+    totalContacts,
+    totalAppointments,
+    successfulAppointments,
+    successRate: totalAppointments > 0 ? (successfulAppointments / totalAppointments) * 100 : 0,
+  }
+}
+
+export default async function DashboardPage() {
+  const initialData = await getDashboardData()
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen py-2">
-      <h1 className="text-2xl font-bold mb-4">Dashboard</h1>
-      <button
-        className="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mb-4"
-        onClick={fetchDashboardData}
-      >
-        Refresh Data
-      </button>
-      {dashboardData && (
-        <div className="w-full max-w-md">
-          <div className="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
-            <div className="mb-4">
-              <p className="text-gray-700 text-sm font-bold mb-2">Total Contacts</p>
-              <p className="text-3xl font-bold">{dashboardData.totalContacts}</p>
-            </div>
-            <div className="mb-4">
-              <p className="text-gray-700 text-sm font-bold mb-2">Total Appointments</p>
-              <p className="text-3xl font-bold">{dashboardData.totalAppointments}</p>
-            </div>
-            <div className="mb-4">
-              <p className="text-gray-700 text-sm font-bold mb-2">Successful Appointments</p>
-              <p className="text-3xl font-bold">{dashboardData.successfulAppointments}</p>
-            </div>
-            <div>
-              <p className="text-gray-700 text-sm font-bold mb-2">Success Rate</p>
-              <p className="text-3xl font-bold">{dashboardData.successRate.toFixed(2)}%</p>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <Suspense fallback={<div>Loading...</div>}>
+      <DashboardClient initialData={initialData} />
+    </Suspense>
   )
 }
 

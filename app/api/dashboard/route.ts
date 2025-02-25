@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createServerSupabaseClient, getUserRole } from "@/lib/supabase-server"
 
-export async function GET(req: Request) {
+export async function GET() {
   const supabase = createServerSupabaseClient()
 
   const {
@@ -30,6 +30,10 @@ export async function GET(req: Request) {
   }
 
   const [{ count: totalContacts }, { data: appointments }] = await Promise.all([contactsQuery, appointmentsQuery])
+
+  if (!appointments || !totalContacts) {
+    return NextResponse.json({ error: "Failed to fetch data" }, { status: 500 })
+  }
 
   const totalAppointments = appointments.length
   const successfulAppointments = appointments.filter((a) => a.status === "confirmed").length
