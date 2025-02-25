@@ -5,10 +5,18 @@ import type React from "react"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import type { User } from "@supabase/auth-helpers-nextjs"
 
-export function withAuth(WrappedComponent: React.ComponentType<any>, allowedRoles: string[] = []) {
-  return function AuthenticatedComponent(props: any) {
-    const [isAuthenticated, setIsAuthenticated] = useState(false)
+interface WithAuthProps {
+  user?: User
+}
+
+export function withAuth<P extends WithAuthProps>(
+  WrappedComponent: React.ComponentType<P>,
+  allowedRoles: string[] = [],
+) {
+  return function WithAuthComponent(props: Omit<P, keyof WithAuthProps>) {
+    const [user, setUser] = useState<User | null>(null)
     const [loading, setLoading] = useState(true)
     const router = useRouter()
     const supabase = createClientComponentClient()
@@ -32,7 +40,7 @@ export function withAuth(WrappedComponent: React.ComponentType<any>, allowedRole
             return
           }
 
-          setIsAuthenticated(true)
+          setUser(user)
         } catch (error) {
           console.error("Auth error:", error)
           router.push("/login")
@@ -48,11 +56,11 @@ export function withAuth(WrappedComponent: React.ComponentType<any>, allowedRole
       return <div className="flex items-center justify-center min-h-screen">Loading...</div>
     }
 
-    if (!isAuthenticated) {
+    if (!user) {
       return null
     }
 
-    return <WrappedComponent {...props} />
+    return <WrappedComponent {...(props as P)} user={user} />
   }
 }
 
